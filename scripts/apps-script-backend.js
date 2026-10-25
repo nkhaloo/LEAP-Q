@@ -1,6 +1,7 @@
 /* Google Apps Script backend. See README.md for deployment instructions. */
 var SPREADSHEET_ID = '121p3XrVm4ssktWA2lbexkFAHo-MPBnNENyMQOrvL78A';
-var TARGET_SHEET_ID = 0;
+// Keep the earlier Word-questionnaire responses intact in their original tab.
+var RESPONSE_SHEET_NAME = 'LEAP-Q QSF';
 var ALLOWED_ORIGINS = ['https://nkhaloo.github.io', 'http://localhost:8000', 'http://127.0.0.1:8000'];
 
 function doGet() {
@@ -37,17 +38,16 @@ function doPost(e) {
     });
     var errors = LeapQ.validate(clean);
     if (errors.length) throw new Error(errors[0].message);
-    // Clear answers belonging to language slots that were removed during editing.
-    var count = LeapQ.languages(clean).length;
-    for (var i = count + 1; i <= 5; i++) {
-      LeapQ.percentages.forEach(function(g) { clean[g.id + '_' + i] = ''; });
-      LeapQ.fields.forEach(function(f) { if (f.key.indexOf('l' + i + '_') === 0) clean[f.key] = ''; });
-    }
+    // Only filled dominance slots are looped in the QSF; preserve their original slot IDs.
+    var active = LeapQ.activeFields(clean).map(function(f) { return f.key; });
+    LeapQ.fields.forEach(function(f) {
+      if (active.indexOf(f.key) === -1) clean[f.key] = f.type === 'checkbox' ? false : '';
+    });
     saveResponse_(payload.submission_id, clean);
     result.ok = true;
   } catch (error) {
     console.error(error);
-    result.error = /^(Please |Question |List |Only list |Identification |Age |Years |Language |A country |A family |A school |Invalid |Missing |Questionnaire version)/.test(error.message)
+    result.error = /^(Please |The total |Invalid |Missing |Questionnaire version)/.test(error.message)
       ? error.message : 'The response could not be saved. Please contact the researcher or try again.';
   }
   // HtmlService runs inside an Apps Script sandbox iframe. top is the GitHub Pages
@@ -63,8 +63,7 @@ function saveResponse_(id, a) {
   lock.waitLock(30000);
   try {
     var book = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = book.getSheets().filter(function(s) { return s.getSheetId() === TARGET_SHEET_ID; })[0];
-    if (!sheet) throw new Error('The configured sheet tab does not exist.');
+    var sheet = book.getSheetByName(RESPONSE_SHEET_NAME) || book.insertSheet(RESPONSE_SHEET_NAME);
     var headers = ['received_at_utc', 'submission_id', 'questionnaire_version'].concat(LeapQ.fields.map(function(f) { return f.key; }));
     if (sheet.getMaxColumns() < headers.length) sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
     if (sheet.getLastRow() === 0) {
@@ -72,7 +71,7 @@ function saveResponse_(id, a) {
       sheet.setFrozenRows(1);
     } else {
       var existing = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
-      if (existing.some(function(v, j) { return v !== headers[j]; })) throw new Error('Sheet headers do not match. Use an empty tab or restore the LEAP-Q headers.');
+      if (existing.some(function(v, j) { return v !== headers[j]; })) throw new Error('The QSF response tab has incompatible headers. Please contact the researcher.');
     }
     // Deduplicate a retry after an acknowledgement timeout, under the same lock.
     if (sheet.getLastRow() > 1) {
@@ -83,7 +82,7 @@ function saveResponse_(id, a) {
       var value = a[f.key];
       if (f.type === 'checkbox') return value ? 'Yes' : 'No';
       if (value === undefined || value === '') return '';
-      if (['rating', 'percent', 'age', 'years', 'months'].indexOf(f.type) !== -1) return Number(value);
+      if (['number', 'slider'].indexOf(f.type) !== -1) return Number(value);
       // Prevent spreadsheet formula injection in free-text cells.
       return /^[=+\-@\t\r\n]/.test(value) ? "'" + value : value;
     }));

@@ -1,105 +1,101 @@
-# LEAP-Q online questionnaire
+# LEAP-Q (full) — QSF-based HTML survey
 
-A build-free HTML, CSS, and JavaScript survey for GitHub Pages. It contains the English LEAP-Q background questions (1–9) and language questions (1–7), repeated for each language listed, up to five. There are no audio tasks, attention checks, or other experiment questions.
+The HTML survey follows the supplied **[LEAP-Q_full.qsf](LEAP-Q_full.qsf)**. That file is the source of truth for question wording, controls, response options, validation, page breaks, and language loops. The earlier Word-based questionnaire has been replaced.
 
-The source is the [official English LEAP-Q](https://bilingualism.northwestern.edu/leapq/) by Marian, Blumenfeld, & Kaushanskaya (2007). An unchanged copy of the downloaded English Word questionnaire is in [reference/LEAPQ2007-official.docx](reference/LEAPQ2007-official.docx). The web version changes the layout, replaces references to Word menus with web controls, substitutes “this language” for language-name blanks, and repeats the language section for all listed languages. It preserves the questionnaire items and all original 0–10 response labels, including the original Male/Female options. It does not add study-specific questions.
+## Required update to your existing Apps Script deployment
 
-## 1. Connect the spreadsheet
+Your deployment URL is already in [config.js](config.js) and has been preserved. The receiver must be updated because the QSF uses a different response schema:
 
-The receiver already points to spreadsheet **121p3XrVm4ssktWA2lbexkFAHo-MPBnNENyMQOrvL78A**, tab **gid=0**:
+1. Open the Apps Script project for your existing deployment.
+2. Replace all of `Code.gs` with the entire updated **[apps-script.txt](apps-script.txt)** and save.
+3. Choose **Deploy → Manage deployments → Edit → New version → Deploy**. Keep **Execute as: Me** and **Who has access: Anyone**. Updating the existing deployment keeps the same `/exec` URL.
+4. Push the updated website files to GitHub. Pages should serve from **main**, **/ (root)**.
+5. Submit a test response and check the new **LEAP-Q QSF** tab in [your spreadsheet](https://docs.google.com/spreadsheets/d/121p3XrVm4ssktWA2lbexkFAHo-MPBnNENyMQOrvL78A/edit).
 
-[Open the target spreadsheet](https://docs.google.com/spreadsheets/d/121p3XrVm4ssktWA2lbexkFAHo-MPBnNENyMQOrvL78A/edit?gid=0#gid=0)
+The receiver creates that dedicated tab automatically. It preserves any previous questionnaire data in the original tab. A mismatched header in the QSF tab causes a save error rather than overwriting data. The spreadsheet itself can remain private. The old deployed receiver will reject the new questionnaire version until you update it.
 
-1. Open that spreadsheet under the Google account that can edit it. Choose **Extensions → Apps Script**.
-2. Replace the contents of `Code.gs` with the **entire contents of [apps-script.txt](apps-script.txt)**. Save. No additional Apps Script files or libraries are needed.
-3. Choose **Deploy → New deployment → Web app**. Set **Execute as: Me** and **Who has access: Anyone**. Authorize the script and deploy. Participants should not need to sign in to Google. If your organization does not allow anonymous web apps, its policy must be resolved before this setup can collect public responses.
-4. Copy the **Web app URL**, ending in `/exec` (not `/dev`).
-5. Paste it into [config.js](config.js):
+Expected Pages URL: **https://nkhaloo.github.io/LEAP-Q/**.
 
-   ```js
-   window.LEAPQ_CONFIG = {
-     appsScriptUrl: "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
-   };
-   ```
+## Participant-facing structure
 
-Do not paste the spreadsheet URL into `config.js`. Do not reuse the earlier accent experiment's receiver. This questionnaire has its own data schema.
-
-The tab with `gid=0` must be empty on the first submission. The script creates a header row automatically. If that tab already has unrelated data, the receiver refuses to append responses to mismatched headers; use a new empty tab and change `TARGET_SHEET_ID` to that tab's numeric gid in the script. Existing rows are never cleared. Keep the spreadsheet private; only the web app needs anonymous access.
-
-## 2. Host on GitHub Pages
-
-1. Commit and push these files to this repository's default branch.
-2. In the GitHub repository, open **Settings → Pages**.
-3. Choose **Deploy from a branch**, the default branch, and **/ (root)**; save.
-4. The expected URL for this repo is **https://nkhaloo.github.io/LEAP-Q/** once GitHub finishes deployment.
-
-No npm install, bundler, or build is needed. All assets are local and paths work under the `/LEAP-Q/` project path. `.nojekyll` is included.
-
-If you use a different GitHub account or a custom domain, update `ALLOWED_ORIGINS` in Apps Script to match the exact site origin, without a trailing slash or repo path, and redeploy. This allowlist controls which page receives acknowledgements; it is not authentication for the public receiver. The browser sends responses via a hidden form/iframe and receives an explicit, nonce-bound `postMessage` after the sheet write succeeds. It does not use an opaque `fetch(no-cors)` response as evidence of a save.
-
-## 3. Verify before collecting responses
-
-1. Open the deployed survey in a private browser window.
-2. Complete a test response, including a 0 rating, an N/A age milestone, and a second language. Confirm that percentages must total 100 in each group.
-3. Submit and confirm that the page says **Your questionnaire has been saved**.
-4. Check that exactly one new row appears in the target sheet and that the answers match. Delete only your test response row afterward.
-5. Test on a phone as well. If the receiver changes, choose **Deploy → Manage deployments → Edit → New version → Deploy**; saving Apps Script alone does not update the deployed version.
-
-The repository does not include a deployed Apps Script URL or claim a live spreadsheet write has been verified. Completing the deployment steps above is required for collection.
-
-## Survey behavior
-
-- Dominance and acquisition lists must contain the same languages, without duplicates or skipped rows. One to five languages are supported.
-- Each percentage group must total 100%; 0 and decimal percentages are accepted.
-- Original 0–10 rating labels are shown in dropdowns, with no default responses. A blank rating is different from 0.
-- Language ages accept a numeric age (including decimals) or `N/A`. This avoids forcing a literacy or fluency milestone that has not occurred. Language environment durations accept years and months; months range from 0 to 11.
-- Personal details, education, immigration, cultures, and health checkboxes may be left blank. A named culture requires an identification rating; checked health items require an explanation; “Other” education requires text. Language percentages and each language's ratings, ages, and environment durations are required.
-- Back navigation retains answers. Reordering the dominance list keeps existing language answers attached to their language; a renamed/new language starts with blank language answers.
-- Answers exist only in memory in the current tab. There are no cookies, analytics, or local storage. Reloading or closing the tab loses unsubmitted answers. The page warns before leaving with answers entered.
-- The server confirms successful saves. Failed or unconfirmed saves keep the answers in the tab. Retrying an unchanged submission reuses its ID so it does not create another row. A 60-second timeout is reported as unconfirmed rather than success.
-
-## Spreadsheet layout
-
-One row per complete response. The first three columns are `received_at_utc`, `submission_id`, and `questionnaire_version`, followed by stable field keys:
-
-| Columns | Meaning |
+| Page | QSF questions, in order |
 | --- | --- |
-| `last_name`, `first_name`, `today`, `age`, `birth_date`, `sex` | Original personal details |
-| `dominance_1` … `dominance_5` | Language names, in dominance order |
-| `acquisition_1` … `acquisition_5` | Language names, in acquisition order |
-| `current_N`, `reading_N`, `speaking_N` | Q3–Q5 percentages for language in dominance slot N |
-| `culture_N`, `culture_rating_N` | Q6 cultural identification |
-| `education_*`, `immigration_*`, `health_*` | Q7–Q9 background responses |
-| `lN_order`, `lN_age_0` … `lN_age_3` | Language N's acquisition position and age milestones |
-| `lN_environment_J_years`, `lN_environment_J_months` | Environment J: 0 country, 1 family, 2 school/work |
-| `lN_proficiency_J` | 0 speaking, 1 understanding spoken language, 2 reading |
-| `lN_learning_J` | 0 friends, 1 family, 2 reading, 3 tapes/self instruction, 4 TV, 5 radio |
-| `lN_exposure_J` | 0 friends, 1 family, 2 TV, 3 radio/music, 4 reading, 5 language-lab/self-instruction |
-| `lN_accent`, `lN_identified` | Perceived foreign accent and frequency of identification as a non-native speaker |
+| 1 | Age; gender (Male, Female, Other with text); five languages in dominance order; five languages in acquisition order |
+| 2 | Current exposure percentages; reading preference percentages; speaking preference percentages; five cultures; formal education years; education level checkboxes; USA immigration; other immigration; health checkboxes with a separate text entry for each condition |
+| One page per listed language | Language introduction; four age milestone text entries; three language-environment text entries; separate speaking, understanding, and reading proficiency radio groups; learning-factor sliders; current-exposure sliders; foreign-accent radio group; non-native-identification radio group |
 
-N is 1–5 and corresponds to `dominance_N`. All five slots have columns; unused language cells are blank. Checked health conditions are `Yes`; unchecked conditions are `No`. An unchecked box does not distinguish a negative answer from a skipped question. Free-text values that could execute as spreadsheet formulas are escaped. Ratings, percentages, age, education years, and environment durations are numeric spreadsheet cells; age milestones remain text to support `N/A`.
+The language block loops over nonempty dominance entries in their original order, including entries after gaps. Language names are piped into the questions. The QSF has no randomization. Each percentage group has all five piped rows, even if some names are blank.
 
-## Local preview and maintenance
+The original QSF controls are retained: single-choice radio buttons; multi-choice education and health checkboxes; text inputs for ages, durations, and immigration; 0–10 sliders for learning and exposure; and the original 0–10 radio labels for proficiency and accent. Sliders have the source's near-midpoint start positions and three anchor labels, do not show a numeric readout, and are optional. An untouched slider is stored as blank; moving it to 0 stores a numeric zero. Responses use zero decimal places as configured in the QSF.
+
+There is no Back button, review page, progress indicator, name, birth date, date-of-survey question, culture-identification scale, or native/second-language selector. These are absent from the supplied QSF. Next is the source's right arrow. The page uses a plain survey layout; Qualtrics' proprietary theme assets are not bundled in a QSF export, so the website recreates the structure and controls rather than loading the hosted Qualtrics skin.
+
+## Validation mirrors the file
+
+- Age and gender are required. Age is a text entry without a numeric restriction, matching its QSF settings.
+- The first dominance, acquisition, and culture entries are required by the QSF's custom validation. The QSF does not require matching language lists, reject duplicates, or prevent gaps; this HTML version does not add those rules.
+- Each percentage group must total 100. Blank cells contribute 0. Per-cell range enforcement is disabled in the QSF and is not added here.
+- Education years must be a number; at least one education checkbox is required. The education question is multi-select in the source, even though its wording asks for the highest level.
+- Each language's speaking, understanding, reading, perceived accent, and identification-frequency radio answers are required.
+- Language ages, environment durations, both slider groups, immigration, health, and extra text beside choices are optional. The QSF has no force-text rule for “Other” or checked health items.
+- Environment durations use one free-text input per environment (for example, “2 years, 6 months”), as in the QSF, rather than separate years/months fields.
+
+## Saving and resuming
+
+The QSF enables Save and Continue. The HTML version saves the current draft on this browser/device for up to one week since last activity. Reloading resumes the current page. Successful submission removes the local draft. Avoid a shared browser for participant responses; local drafts can include health explanations. If browser storage is unavailable, the page reports that it cannot save progress locally.
+
+Only completed submissions go to Google Sheets. Qualtrics-specific infrastructure such as server-side partial response closure after a week, its cookies, account settings, proprietary rendering, and its network/location metadata are not reproduced by a static GitHub Pages site. The participant questions and survey flow come directly from the QSF.
+
+The receiver acknowledges the actual spreadsheet write. Failed or unconfirmed submissions retain answers for retry. The same unchanged response uses the same submission ID, including after a reload, to avoid duplicate rows. A save is never reported as successful solely from an opaque `no-cors` request.
+
+The public receiver's allowed page origins are `https://nkhaloo.github.io`, `http://localhost:8000`, and `http://127.0.0.1:8000`. Change `ALLOWED_ORIGINS` if the website origin changes, then redeploy. This origin list controls acknowledgement destinations; it is not authentication for the public survey endpoint.
+
+## Data format
+
+One row per response in **LEAP-Q QSF**, starting with `received_at_utc`, `submission_id`, and `questionnaire_version`. Field names use QSF IDs because its `DataExportTag` names are not unique (for example, `Q25` is reused).
+
+| Key format | Meaning |
+| --- | --- |
+| `QID2`, `QID3` | Age text and gender choice ID |
+| `QID3_3_TEXT` | Gender “Other” text |
+| `QID4_N`, `QID5_N` | Dominance and acquisition entries, N = 1–5 |
+| `QID6_N`, `QID7_N`, `QID8_N` | Numeric current-exposure, reading, and speaking percentages |
+| `QID9_N` | Culture names |
+| `QID10` | Numeric formal education years |
+| `QID11_N`, `QID11_9_TEXT` | Education checkbox values (`Yes`/`No`) and Other text |
+| `QID43`, `QID44` | USA and other-country immigration text |
+| `QID12_N`, `QID12_N_TEXT` | Health checkbox values (`Yes`/`No`) and separate explanations |
+| `LS_QID22_N` | Age milestone text, N = 1–4, for dominance slot S |
+| `LS_QID23_N` | Country, family, school/work duration text, N = 1–3 |
+| `LS_QID24`, `LS_QID39`, `LS_QID38` | Speaking, understanding, reading radio choice IDs |
+| `LS_QID25_N`, `LS_QID40_N` | Learning/exposure slider numeric values 0–10 |
+| `LS_QID41`, `LS_QID42` | Accent and identification-frequency radio choice IDs |
+
+S is the original dominance row, 1–5. Only nonempty dominance rows generate language pages. Inactive language columns remain blank. Both slider groups use this row order: friends, family, reading, language apps or websites/self instruction, TV, radio/music.
+
+**Radio responses store original QSF choice IDs.** Gender is 1 = Male, 2 = Female, 3 = Other. The 0–10 radio scales use IDs **1–11**, so **choice ID minus one is the displayed rating**. Slider responses already contain the displayed 0–10 rating. Choice labels and the complete field mapping are available in [DATA_DICTIONARY.md](DATA_DICTIONARY.md). Free-text cells that could execute as spreadsheet formulas are escaped.
+
+## Development and checks
+
+No build or package installation is needed to serve the website:
 
 ```sh
 python3 -m http.server 8000
 ```
 
-Open **http://localhost:8000**. That origin and `http://127.0.0.1:8000` are already allowed by the receiver. Submission still requires a deployed Apps Script URL.
+Open **http://localhost:8000**. The configured deployment still needs the updated receiver before it can accept submissions.
 
-`questionnaire.js` defines fields, scale labels, and validation shared with Apps Script. If it changes, regenerate the paste-ready file and rerun checks:
+If the source QSF or shared validation changes, regenerate the bundled data and paste-ready script:
 
 ```sh
+python3 scripts/build-questionnaire.py
 python3 scripts/build-apps-script.py
+node scripts/build-data-dictionary.cjs
 node --check app.js
 node --check questionnaire.js
 node --test tests/questionnaire.test.cjs
 ```
 
-Optional browser integration checks are in `tests/browser.cjs`. They require Playwright with Chromium installed and the local server running. Run `node tests/browser.cjs` in an environment that can resolve the `playwright` package. These checks use a simulated receiver to test confirmed saves and retries; they do not write test data to Google Sheets.
+The optional Playwright checks in `tests/browser.cjs` require Chromium and a local preview server. With Playwright available to Node, run `node tests/browser.cjs`. They test page order, loops, controls, saved progress, simulated receiver failures/retries, mobile widths, and safe language-name substitution. They do not write to the live spreadsheet.
 
-The receiver source is `scripts/apps-script-backend.js`. Regenerate `apps-script.txt` after changes, paste it into Apps Script, and deploy a new version. Changing field keys requires a matching new empty sheet tab (or a deliberate data migration); the receiver checks headers rather than mixing schemas.
-
-## Citation
-
-Marian, V., Blumenfeld, H. K., & Kaushanskaya, M. (2007). The Language Experience and Proficiency Questionnaire (LEAP-Q): Assessing language profiles in bilinguals and multilinguals. *Journal of Speech, Language, and Hearing Research, 50*(4), 940–967.
+Key files: `LEAP-Q_full.qsf` (supplied source), `qsf-data.js` (generated definitions), `questionnaire.js` (shared schema/validation), `app.js` (HTML renderer and submission), `scripts/apps-script-backend.js` (receiver), `apps-script.txt` (complete copy/paste receiver), and `config.js` (existing deployment URL).

@@ -1,120 +1,152 @@
 'use strict';
-const Q = window.LeapQ;
-const answers = {};
-const form = document.getElementById('survey');
-const panel = document.getElementById('panel');
-const errorBox = document.getElementById('errors');
-const back = document.getElementById('back');
-const next = document.getElementById('next');
-const statusBox = document.getElementById('submission-status');
-let step = 0;
-let pending = false;
-let submissionId = crypto.randomUUID();
-let savedPayload = null;
-let committedLanguages = [];
-const configured = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(window.LEAPQ_CONFIG.appsScriptUrl);
-document.getElementById('setup-notice').hidden = configured;
-const escape = s => String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function options(values,empty='Select…') { return '<option value="">'+empty+'</option>'+values.map(v=>'<option value="'+escape(v)+'">'+escape(v)+'</option>').join(''); }
-function field(key,label,type='text',attrs='') {
-  const input=type==='textarea'?'<textarea id="'+key+'" name="'+key+'" maxlength="5000" '+attrs+'></textarea>':'<input id="'+key+'" name="'+key+'" type="'+type+'" '+(type==='text'?'maxlength="5000" ':'')+attrs+'>';
-  return '<label class="field" for="'+key+'"><span>'+escape(label)+'</span>'+input+'</label>';
-}
-function select(key,label,values) { return '<label class="field" for="'+key+'"><span>'+escape(label)+'</span><select id="'+key+'" name="'+key+'">'+options(values)+'</select></label>'; }
-function rating(key,label,scale) {return '<label class="rating-row" for="'+key+'"><span>'+escape(label)+'</span>'+ratingSelect(key,label,scale)+'</label>';}
-function ratingSelect(key,label,scale) {return '<select id="'+key+'" name="'+key+'" aria-label="'+escape(label)+'"><option value="">Select a rating…</option>'+Q.scales[scale].map((s,i)=>'<option value="'+i+'">'+i+(s?' — '+escape(s):'')+'</option>').join('')+'</select>';}
-function question(n,text,body) {return '<fieldset><legend><span class="question-number">'+n.toString().padStart(2,'0')+'</span>'+escape(text)+'</legend>'+body+'</fieldset>';}
-function collect(){panel.querySelectorAll('[name]').forEach(el=>{answers[el.name]=el.type==='checkbox'?el.checked:el.value;});}
-function restore(){panel.querySelectorAll('[name]').forEach(el=>{if(el.type==='checkbox')el.checked=answers[el.name]===true;else el.value=answers[el.name]===undefined?'':answers[el.name];});}
-function background(){
-  let html='<h2>Language background</h2><p class="hint">List up to five languages. Leave unused language rows blank. Personal details may be left blank.</p>';
-  html+='<div class="field-grid">'+field('last_name','Last Name','text','autocomplete="family-name"')+field('first_name','First Name','text','autocomplete="given-name"')+field('today','Today’s Date','date')+field('age','Age','number','min="0" max="120" step="any"')+field('birth_date','Date of Birth','date')+select('sex','Male / Female',['Male','Female'])+'</div>';
-  html+=question(1,'Please list all the languages you know in order of dominance:','<div class="stack">'+Array.from({length:5},(_,i)=>'<div class="rank-row"><span>'+(i+1)+'</span>'+field('dominance_'+(i+1),'Language '+(i+1))+'</div>').join('')+'</div>');
-  html+=question(2,'Please list all the languages you know in order of acquisition (your native language first):','<div class="stack">'+Array.from({length:5},(_,i)=>'<div class="rank-row"><span>'+(i+1)+'</span>'+field('acquisition_'+(i+1),'Language '+(i+1))+'</div>').join('')+'</div>');return html;
-}
-function overview(){
-  const ls=Q.languages(answers);
-  let html='<h2>Experience &amp; background</h2><p class="hint">Answer for all of your languages. Each percentage group should total 100%. Use 0 when applicable.</p>';
-  Q.percentages.forEach(g=>{html+=question(g.number,g.question,'<p class="hint">(Your percentages should add up to 100%):</p><div class="stack">'+ls.map((l,i)=>'<div class="percent-row"><span>'+escape(l)+'</span>'+field(g.id+'_'+(i+1),l+' (%)','number','min="0" max="100" step="any" inputmode="decimal"')+'</div>').join('')+'</div><p class="total" id="total-'+g.id+'" aria-live="polite"></p>');});
-  html+=question(6,'Please name the cultures with which you identify. On a scale from zero to ten, please rate the extent to which you identify with each culture. (Examples of possible cultures include US-American, Chinese, Jewish-Orthodox, etc):','<div class="stack">'+Array.from({length:5},(_,i)=>'<div class="culture-row">'+field('culture_'+(i+1),'Culture '+(i+1))+ratingSelect('culture_rating_'+(i+1),'Culture '+(i+1)+' — identification','identification')+'</div>').join('')+'</div>');
-  html+=question(7,'How many years of formal education do you have?',field('education_years','Years','number','min="0" max="100" step="any"')+'<p class="hint" style="margin-top:20px">Please check your highest education level (or the approximate US equivalent to a degree obtained in another country):</p><div class="field-grid">'+select('education_level','Highest education level',Q.education)+field('education_other','Other:')+'</div>');
-  html+=question(8,'Date of immigration to the USA, if applicable',field('immigration_usa','Date of immigration to the USA')+'<div style="margin-top:16px">'+field('immigration_other','If you have ever immigrated to another country, please provide name of country and date of immigration here.','textarea')+'</div>');
-  html+=question(9,'Have you ever had a vision problem, hearing impairment, language disability, or learning disability? (Check all applicable).','<div class="checks">'+['vision problem','hearing impairment','language disability','learning disability'].map((l,i)=>'<label><input type="checkbox" name="health_'+i+'" id="health_'+i+'">'+escape(l)+'</label>').join('')+'</div><div style="margin-top:18px">'+field('health_explanation','If yes, please explain (including any corrections):','textarea')+'</div>');
-  return html;
-}
-function language(index){
-  const ls=Q.languages(answers),i=index+1,prefix='l'+i+'_';
-  let html='<p class="eyebrow">LANGUAGE '+i+' OF '+ls.length+'</p><h2>'+escape(ls[index])+'</h2><p class="hint">All questions below refer to your knowledge of '+escape(ls[index])+'. For an age that does not apply, enter N/A. For time spent in an environment, enter 0 if none.</p>';
-  html+=select(prefix+'order','This is my … language.',['Native','Second','Third','Fourth','Fifth']);
-  html+=question(1,'Age when you…:','<div class="field-grid">'+Q.milestones.map((l,k)=>field(prefix+'age_'+k,l+':','text','inputmode="text"')).join('')+'</div>');
-  html+=question(2,'Please list the number of years and months you spent in each language environment:',Q.environments.map((l,k)=>'<div class="duration-row"><span>'+escape(l)+'</span>'+field(prefix+'environment_'+k+'_years','Years','number','min="0" max="120" step="any"')+field(prefix+'environment_'+k+'_months','Months','number','min="0" max="11" step="1"')+'</div>').join(''));
-  Q.groups.forEach(g=>{html+=question(g.number,g.question,g.items.map((l,k)=>rating(prefix+g.id+'_'+k,l,g.scale)).join(''));});
-  html+=question(6,'In your perception, how much of a foreign accent do you have in this language?',rating(prefix+'accent','Foreign accent','accent'));
-  html+=question(7,'Please rate how frequently others identify you as a non-native speaker based on your accent in this language:',rating(prefix+'identified','Frequency','exposure'));
-  return html;
-}
-function review(){
-  const ls=Q.languages(answers);
-  const blocks=[{title:'Language background',fields:Q.fields.filter(f=>/^(last_name|first_name|today|age|birth_date|sex|dominance_|acquisition_)/.test(f.key))},{title:'Experience & background',fields:Q.fields.filter(f=>!/^(last_name$|first_name$|today$|age$|birth_date$|sex$|dominance_|acquisition_|l\d_)/.test(f.key))}];
-  ls.forEach((l,i)=>blocks.push({title:l,fields:Q.fields.filter(f=>f.key.startsWith('l'+(i+1)+'_'))}));
-  return '<h2>Review your answers</h2><p class="hint">You can go back to make changes. Select “Submit questionnaire” to save your answers to the researcher’s spreadsheet.</p>'+blocks.map(b=>'<details class="review-block"><summary>'+escape(b.title)+'</summary><dl>'+b.fields.filter(f=>answers[f.key]!==undefined&&answers[f.key]!==''&&answers[f.key]!==false).map(f=>'<dt>'+escape(f.label)+'</dt><dd>'+escape(answers[f.key]===true?'Checked':answers[f.key])+'</dd>').join('')+'</dl></details>').join('');
-}
-// Preserve language-specific answers when the dominance list is reordered.
-function reconcileLanguages(){
-  const names=Q.languages(answers),old={...answers};
-  names.forEach((name,j)=>{
-    const previous=committedLanguages.findIndex(l=>l.toLowerCase()===name.toLowerCase());
-    Q.percentages.forEach(g=>{answers[g.id+'_'+(j+1)]=previous<0?'':old[g.id+'_'+(previous+1)]||'';});
-    Q.fields.filter(f=>f.key.startsWith('l'+(j+1)+'_')).forEach(f=>{
-      const suffix=f.key.slice(3);answers[f.key]=previous<0?'':old['l'+(previous+1)+'_'+suffix]||'';
-    });
-    if(!answers['l'+(j+1)+'_order']){
-      const position=Array.from({length:names.length},(_,k)=>String(answers['acquisition_'+(k+1)]||'').toLowerCase()).indexOf(name.toLowerCase());
-      answers['l'+(j+1)+'_order']=['Native','Second','Third','Fourth','Fifth'][position]||'';
+const Q=window.LeapQ;
+const form=document.getElementById('survey');
+const panel=document.getElementById('panel');
+const errorBox=document.getElementById('errors');
+const next=document.getElementById('next');
+const statusBox=document.getElementById('submission-status');
+const storageKey='leapq-qsf-progress-v1';
+const retention=7*24*60*60*1000;
+let answers={},step=0,pending=false,complete=false;
+let submissionId=crypto.randomUUID();
+let savedPayload=null;
+const configured=/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(window.LEAPQ_CONFIG.appsScriptUrl);
+document.getElementById('setup-notice').hidden=configured;
+const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Keep the QSF's emphasis, while treating imported HTML and piped answers as data.
+function content(raw,page={}) {
+  const template=document.createElement('template');template.innerHTML=raw||'';
+  function clean(node){
+    if(node.nodeType===Node.TEXT_NODE){
+      const chunks=node.textContent.split(/(\$\{lm:\/\/Field\/1\}|\$\{q:\/\/QID4\/ChoiceTextEntryValue\/[1-5]\})/g);
+      return chunks.map(chunk=>{
+        if(chunk==='${lm://Field/1}')return escape(page.language||'');
+        const match=chunk.match(/^\$\{q:\/\/QID4\/ChoiceTextEntryValue\/([1-5])\}$/);
+        return escape(match?answers['QID4_'+match[1]]||'':chunk);
+      }).join('');
     }
-  });
-  for(let j=names.length+1;j<=5;j++){
-    Q.percentages.forEach(g=>delete answers[g.id+'_'+j]);
-    Q.fields.filter(f=>f.key.startsWith('l'+j+'_')).forEach(f=>delete answers[f.key]);
+    if(node.nodeType!==Node.ELEMENT_NODE&&node.nodeType!==Node.DOCUMENT_FRAGMENT_NODE)return '';
+    if(['SCRIPT','STYLE','IFRAME','OBJECT'].includes(node.tagName))return '';
+    const inner=Array.from(node.childNodes).map(clean).join('');
+    if(node.tagName==='BR')return '<br>';
+    if(['STRONG','B'].includes(node.tagName)||(node.tagName==='SPAN'&&node.style.fontWeight==='700'))return '<strong>'+inner+'</strong>';
+    if(['EM','I'].includes(node.tagName))return '<em>'+inner+'</em>';
+    return inner;
   }
-  committedLanguages=names.slice();
+  return clean(template.content);
 }
-function updateTotals(){Q.percentages.forEach(g=>{const el=document.getElementById('total-'+g.id);if(!el)return;let total=0;panel.querySelectorAll('[name^="'+g.id+'_"]').forEach(input=>total+=Number(input.value)||0);el.textContent='Total: '+Math.round(total*1000)/1000+' / 100%';el.classList.toggle('valid',Math.abs(total-100)<.001);});}
+function saveProgress(){
+  if(complete)return;
+  try{localStorage.setItem(storageKey,JSON.stringify({version:Q.version,answers,step,submissionId,savedPayload,updatedAt:Date.now()}));}
+  catch{document.getElementById('storage-note').textContent='Progress could not be saved on this device. Please keep this tab open.';}
+}
+function restoreProgress(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(storageKey)||'null');
+    if(!saved)return;
+    if(saved.version!==Q.version||Date.now()-saved.updatedAt>retention){localStorage.removeItem(storageKey);return;}
+    if(!saved.answers||typeof saved.answers!=='object'||Array.isArray(saved.answers))return;
+    Q.fields.forEach(f=>{const v=saved.answers[f.key];if(f.type==='checkbox'&&typeof v==='boolean'||f.type!=='checkbox'&&typeof v==='string')answers[f.key]=v;});
+    const max=Q.pages(answers).length-1;
+    if(Number.isInteger(saved.step)&&saved.step>=0&&saved.step<=max)step=saved.step;
+    if(/^[a-f0-9-]{36}$/i.test(saved.submissionId||''))submissionId=saved.submissionId;
+    if(typeof saved.savedPayload==='string')savedPayload=saved.savedPayload;
+  }catch{/* A corrupt or unavailable local draft must not prevent a fresh response. */}
+}
+function input(key,label,opts={}){
+  return '<label class="text-row" for="'+key+'"><span>'+label+'</span><input type="'+(opts.type||'text')+'" id="'+key+'" name="'+key+'" '+(opts.type==='number'?'step="any" ':'maxlength="5000" ')+(opts.single?'class="single-input" ':'')+'autocomplete="off"></label>';
+}
+function question(qid,page){
+  const q=Q.source.questions[qid],ids=Q.choiceOrder(q),key=id=>Q.key(qid,id,page.slot);
+  if(q.QuestionType==='DB')return '<div class="language-intro" data-question="'+qid+'">'+content(q.QuestionText,page)+'</div>';
+  let body='';
+  if(q.QuestionType==='TE'){
+    if(q.Selector==='FORM')body='<div class="text-form">'+ids.map(id=>input(key(id),content(q.Choices[id].Display,page))).join('')+'</div>';
+    else body='<input class="'+(qid==='QID43'||qid==='QID44'?'wide-input':'single-input')+'" type="text" id="'+key()+'" name="'+key()+'" maxlength="5000" aria-labelledby="legend-'+key()+'" autocomplete="off">';
+  }else if(q.QuestionType==='MC'){
+    const multiple=q.Selector==='MAVR';
+    body='<div class="choice-list">'+ids.map(id=>{
+      const choice=q.Choices[id],choiceKey=key(id),textKey=key(id+'_TEXT');
+      return '<div class="choice-item"><label class="choice-label"><input type="'+(multiple?'checkbox':'radio')+'" id="'+choiceKey+'" name="'+(multiple?choiceKey:key())+'" value="'+id+'"><span>'+content(choice.Display,page)+'</span></label>'+
+        (choice.TextEntry?'<input class="choice-text" type="text" name="'+textKey+'" id="'+textKey+'" maxlength="5000" aria-label="'+escape(q.Choices[id].Display.replace(/<[^>]*>/g,''))+' — text entry" data-select-choice="'+choiceKey+'" autocomplete="off">':'')+'</div>';
+    }).join('')+'</div>';
+  }else if(q.QuestionType==='CS'){
+    body='<div class="constant-sum">'+ids.map(id=>'<div class="percent-row">'+input(key(id),content(q.Choices[id].Display,page),{type:'number'})+'<span aria-hidden="true">%</span></div>').join('')+'</div><p class="total" id="total-'+qid+'" aria-live="polite"></p>';
+  }else if(q.QuestionType==='Slider'){
+    const cfg=q.Configuration;
+    body='<div class="slider-group">'+ids.map(id=>{
+      const position=cfg.SliderStartPositions[id]*(cfg.CSSliderMax-cfg.CSSliderMin)+cfg.CSSliderMin;
+      return '<div class="slider-row"><label for="'+key(id)+'">'+content(q.Choices[id].Display,page)+'</label><div class="slider-control"><div class="slider-numbers" aria-hidden="true">'+Array.from({length:11},(_,i)=>'<span>'+i+'</span>').join('')+'</div><input type="range" id="'+key(id)+'" name="'+key(id)+'" min="'+cfg.CSSliderMin+'" max="'+cfg.CSSliderMax+'" step="any" value="'+position+'" data-slider="true" data-answered="false" aria-describedby="anchors-'+key(id)+'"><div class="slider-anchors" id="anchors-'+key(id)+'">'+Object.keys(q.Labels).map(id=>'<span>'+content(q.Labels[id].Display,page)+'</span>').join('')+'</div></div></div>';
+    }).join('')+'</div>';
+  }
+  return '<fieldset class="question" data-question="'+qid+'"><legend id="legend-'+key()+'">'+content(q.QuestionText,page)+'</legend>'+body+'</fieldset>';
+}
+function collect(){
+  panel.querySelectorAll('[name]').forEach(el=>{
+    if(el.type==='radio'){if(el.checked)answers[el.name]=el.value;}
+    else if(el.type==='checkbox')answers[el.name]=el.checked;
+    else if(el.dataset.slider){if(el.dataset.answered==='true')answers[el.name]=String(Math.round(Number(el.value)));}
+    else answers[el.name]=el.value;
+  });
+}
+function restore(){
+  panel.querySelectorAll('[name]').forEach(el=>{
+    const v=answers[el.name];
+    if(el.type==='radio')el.checked=v===el.value;
+    else if(el.type==='checkbox')el.checked=v===true;
+    else if(el.dataset.slider){if(v!==undefined&&v!==''){el.value=v;el.dataset.answered='true';}}
+    else el.value=v===undefined?'':v;
+  });
+}
+function totals(){
+  ['QID6','QID7','QID8'].forEach(qid=>{
+    const el=document.getElementById('total-'+qid);if(!el)return;
+    const total=Q.choiceOrder(Q.source.questions[qid]).reduce((sum,id)=>sum+(Number(answers[Q.key(qid,id)])||0),0);
+    el.textContent='Total: '+Math.round(total*1000000)/1000000+'%';
+    el.classList.toggle('valid',Math.abs(total-100)<0.000001);
+  });
+}
 function render(focus=true){
+  const page=Q.pages(answers)[step];
   errorBox.hidden=true;statusBox.textContent='';
-  const ls=Q.languages(answers),last=ls.length+2;
-  document.getElementById('step-label').textContent=step===0?'Language background':step===1?'Experience & background':step===last?'Review & submit':ls[step-2];
-  document.getElementById('step-count').textContent='Step '+(step+1)+' of '+(last+1);
-  document.getElementById('progress').style.width=((step+1)/(last+1)*100)+'%';
-  panel.innerHTML=step===0?background():step===1?overview():step===last?review():language(step-2);
-  restore();updateTotals();back.hidden=step===0;
-  next.innerHTML=step===last?'Submit questionnaire':'Continue <span aria-hidden="true">→</span>';
-  if(focus){panel.querySelector('h2').tabIndex=-1;panel.querySelector('h2').focus();document.querySelector('.survey-shell').scrollIntoView({behavior:'smooth',block:'start'});}
+  panel.innerHTML=page.questions.map(qid=>question(qid,page)).join('');
+  restore();totals();next.textContent=Q.source.options.NextButton.trim();
+  next.setAttribute('aria-label','Next');
+  if(focus){const first=panel.querySelector('legend,.language-intro');first.tabIndex=-1;first.focus();window.scrollTo({top:0,behavior:'instant'});}
 }
 function showErrors(errors){
   panel.querySelectorAll('[aria-invalid]').forEach(el=>el.removeAttribute('aria-invalid'));
-  errorBox.innerHTML='<strong>Please check the following:</strong><ul>'+errors.map(e=>'<li><a href="#'+escape(e.key)+'">'+escape(e.message)+'</a></li>').join('')+'</ul>';errorBox.hidden=false;
-  errors.forEach(e=>{const el=document.getElementById(e.key);if(el)el.setAttribute('aria-invalid','true');});errorBox.focus();
+  // Single-choice groups use a shared name, with IDs on individual options.
+  function target(key){return document.getElementById(key)||Array.from(panel.querySelectorAll('[name]')).find(el=>el.name===key);}
+  errorBox.innerHTML='<strong>Please check the following:</strong><ul>'+errors.map(e=>'<li><a href="#'+escape(target(e.key)?.id||e.key)+'">'+escape(e.message)+'</a></li>').join('')+'</ul>';errorBox.hidden=false;
+  errors.forEach(e=>{const el=target(e.key);if(el)el.setAttribute('aria-invalid','true');});errorBox.focus();
 }
-panel.addEventListener('input',()=>{collect();updateTotals();});panel.addEventListener('change',collect);
-back.addEventListener('click',()=>{if(pending)return;collect();step--;render();});
-form.addEventListener('submit',async e=>{
-  e.preventDefault();if(pending)return;collect();
-  const last=Q.languages(answers).length+2;
-  const errors=Q.validate(answers,step===last?undefined:step);
-  if(errors.length){if(step===last){const key=errors[0].key;step=/^l\d_/.test(key)?Number(key[1])+1:/^(current_|reading_|speaking_|culture_|education_|immigration_|health_)/.test(key)?1:0;render();}showErrors(errors);return;}
-  if(step<last){if(step===0)reconcileLanguages();step++;render();return;}
-  if(!configured){statusBox.textContent='Submission is not configured. Please contact the researcher; your answers are still in this tab.';return;}
-  pending=true;next.disabled=true;back.disabled=true;next.textContent='Saving…';statusBox.textContent='Saving your questionnaire. Please keep this tab open.';
-  // Retrying the same answers uses the same ID; edited answers receive a new ID.
-  const serialized=JSON.stringify(answers);if(savedPayload!==null&&savedPayload!==serialized)submissionId=crypto.randomUUID();savedPayload=serialized;
+function changed(event){
+  const el=event.target;
+  if(el.dataset.slider)el.dataset.answered='true';
+  if(el.dataset.selectChoice&&el.value){const choice=document.getElementById(el.dataset.selectChoice);choice.checked=true;}
+  collect();totals();saveProgress();
+}
+panel.addEventListener('input',changed);panel.addEventListener('change',changed);
+form.addEventListener('submit',async event=>{
+  event.preventDefault();if(pending||complete)return;collect();
+  const errors=Q.validate(answers,step);if(errors.length){showErrors(errors);return;}
+  if(step<Q.pages(answers).length-1){step++;saveProgress();render();return;}
+  const allErrors=Q.validate(answers);
+  if(allErrors.length){statusBox.textContent='The saved response is incomplete. Please contact the researcher.';return;}
+  if(!configured){statusBox.textContent='Submission is not configured. Please contact the researcher.';return;}
+  pending=true;next.disabled=true;next.setAttribute('aria-label','Saving');next.textContent='…';statusBox.textContent='Saving your questionnaire. Please keep this tab open.';
+  const serialized=JSON.stringify(Q.fields.map(f=>[f.key,answers[f.key]??(f.type==='checkbox'?false:'')]));
+  if(savedPayload!==null&&savedPayload!==serialized)submissionId=crypto.randomUUID();savedPayload=serialized;saveProgress();
   try{
     await send({version:Q.version,submission_id:submissionId,answers});
-    panel.innerHTML='<div class="success"><div class="success-mark" aria-hidden="true">✓</div><h2>Thank you.</h2><p>Your questionnaire has been saved.</p><p class="hint">You may now close this tab.</p></div>';
-    panel.querySelector('h2').tabIndex=-1;panel.querySelector('h2').focus();document.querySelector('.actions').hidden=true;statusBox.textContent='';document.getElementById('step-label').textContent='Questionnaire complete';
-    Object.keys(answers).forEach(k=>delete answers[k]);savedPayload=null;
-  }catch(error){statusBox.textContent=error.message+' Your answers remain in this tab. You can try submitting again.';next.textContent='Try submitting again';}
-  finally{pending=false;next.disabled=false;back.disabled=false;}
+    complete=true;panel.innerHTML='<div class="success"><h1>Thank you for taking this survey.</h1><p>Your response has been recorded.</p></div>';
+    panel.querySelector('h1').tabIndex=-1;panel.querySelector('h1').focus();document.querySelector('.actions').hidden=true;statusBox.textContent='';
+    answers={};savedPayload=null;try{localStorage.removeItem(storageKey);}catch{}
+    document.getElementById('storage-note').hidden=true;
+  }catch(error){statusBox.textContent=error.message+' Your answers have been kept. Select the arrow to try again.';next.textContent='→';next.setAttribute('aria-label','Retry submission');}
+  finally{pending=false;next.disabled=false;}
 });
 function send(payload){
   return new Promise((resolve,reject)=>{
@@ -132,5 +164,5 @@ function send(payload){
     window.addEventListener('message',receive);document.body.append(frame,post);post.submit();
   });
 }
-window.addEventListener('beforeunload',e=>{if(pending||Object.values(answers).some(v=>v!==''&&v!==false)){e.preventDefault();e.returnValue='';}});
-render(false);
+window.addEventListener('beforeunload',event=>{if(pending){event.preventDefault();event.returnValue='';}});
+restoreProgress();render(false);
